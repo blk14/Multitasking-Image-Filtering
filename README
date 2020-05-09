@@ -1,0 +1,113 @@
+NEGRU BOGDAN - CRISTIAN
+        325CA
+
+ 
+  MODUL DE FUNCTIONARE
+''''''''''''''''''''''''
+
+        Programul incepe prin stabilirea procesului INITIATOR ce se ocupa de partea de I/O, dar in cazul in care un singur
+proces este lansat in executie acesta are si rolul de a aplica filtre.
+
+        Citirea se face in functia "readImage" unde dupa ce se citesc variabilele ce descriu imaginea, se stabileste
+un prag de citire si de distribuirea optima a secventelor de imagine catre restul poceselor. Adica se stabileste
+numarul de linii de pixeli pe care le va avea fiecare proces in parte de prelucrat, apoi in timpul citirii fiecare linie este
+trimisa catre un proces. Din cauza dimensiunii (asa cred) nu a mers sa trimit o linie de pixeli intreaga dintr-o imagine color,
+asa ca a fost nevoie sa fac o functie ce imi trimite o linie de pixeli in mai multe perechi de send-uri si recv-uri (functia
+splitSendRecv), acest lucru e valabil in toate locurile unde trimit liniile ce apartin unei imagini color.
+
+        Dupa citirea imaginii se face broadcast cu datele despre imagine pentru a le cunoaste toate procesele.
+
+        Procesele neinitiatoare apeleaza functia "getMyChunk" unde se fac recv-urile la send-urile trimise de INITIATOR in
+readImage, astfel fiecare proces is memoreaza bucata de imagine intr-un obiect de tip Chunk. La alocarea spatiului de memorie
+pentru chunk se ia in considerare si spatiul pentru bordare care se initializeaza cu 0.
+
+        Dupa obtinerea chunk-ului procesele ce se ocupa de prelucrare (aplica filtrele), apeland functia applyFilters, unde se
+aplica efectiv filtrele. Inainte de a aplica filtrele se face o serie de send-uri si recv-uri intre procesele "invecinate" (adica
+au bucati de imagine adiacente), unde sunt implicate prima si ultima linie de pixeli din chunk-uri pentru a se putea calcula sumele
+pentru filtre. Exista cazuri speciale pentru primul si ultimul proces (adica prima si ultima bucata de imagine) unde sunt implicate
+doar ultima, respectiv prima linie de pixeli. Apoi, se creeaza o copie a chunk-ului si se aplica filtrul.
+
+        Dupa aplicare filtrelor, procesele neinitiatoare apeleaza functia sendChunk, iar procesul INITIATOR apeleaza 
+recollectImage. Neinitiatoarele trimit bucatile de imagine catre INITIATOR. Pentru eficienta trimit prima data indexul liniei, iar
+la recv folosesc MPI_ANY_SOURCE, astfel stiu ca un proces e gata sa imi trimita linia. Obtin rank-ul procesului ce mi-a trimis
+indexul liniei cu MPI_status, apoi primesc linia. Neinitiatoarele isi dau seama de indexul liniei din imaginea "parinte" calculand
+un offset pe baza rank-ului. (exemplu de ce e mai eficient: daca procesul responsabil de prima bucata de imagine e foarte lent,
+INITIATORul va fi blocat in recv asteptand liniile de la acesta chiar daca restul proceselor poate sunt gata).
+
+
+  CORECTITUDINE
+''''''''''''''''
+        Pentru a ma asigura ca imaginilor li se aplice filtrele corect am folosit pachetul ImageMagick, asa cum ni s-a sugerat pe
+forum. Dupa testari repetate pe numar diferit de procese, imagini diferite, filtre diferite etc. nu exista pixeli rosii in imaginea
+diff, iar outputul comenzii sugereaza ca imaginle sunt identice (nu exista distortion pe niciun canal de culoare).
+
+
+ SCALABILITATE + TIMPI DE EXECUTIE
+'''''''''''''''''''''''''''''''''''
+        Scalabilitatea exista, dar nu e cine stie ce =))
+        Pentru imaginile mari sau medii, unde se aplica multe filtre, programul scaleaza chiar foarte bine.
+        Pentru imaginele mici sau unde se aplica putine filtre, scalabilitatea scade foarte tare.
+
+ !Exemple de scalabilitate:!
+
+*imaginea landscape.pgm, unde se aplica bssembssem:  (CEA MAI MARE IMAGINE COLOR!)
+        nr procese:             timp:
+             1                    16.48
+             2                    16.70
+             3                    9.58
+             4                    7.25
+             5                    8.04
+             6                    7.65
+             7                    6.93
+             8                    6.26
+
+        ! Este normal sa nu scaleze de la 1 proces la 2 procese, deoarece si cand am 2 procese tot un singur proces aplica filtre,
+        celalalt fiind ocupat cu I/O. Am facut acest lucru deoarece in cerinta scrie ca programul trebuie sa functioneze pe minim 2
+        procese, iar pe forum s-a sugerat ca un proces sa se ocupe de parte de I/O. Ulterior am sesizat ca in barem se acorda
+        punctaj si pentru implementarea pe un singur proces asa ca am modificat putin codul astfel incat sa functioneze, dar sa
+        integrez in algoritm ar fi fost complicat si nu mai aveam timp. Din aceasta cauza nu o sa scaleze nicaieri pentru un nr
+        de 2 procese (fata de 1).
+
+*imaginea baby-yoda.pnm, unde se aplica bssembssem:          (IMAGINE MEDIE, FILTRE MULTE)
+        nr procese:               timp:
+            1                       4.77
+            2                       4.80
+            3                       3.64
+            4                       3.17
+            5                       2.68
+            6                       2.53
+            7                       2.33
+            8                       2.51
+
+*imaginea rorschach.pgm, unde se aplica bssembssem:     (CEA MAI MARE IMAGINE ALB NEGRU)
+        nr procese:              timp:
+            1                     5.63
+            2                     5.67
+            3                     3.49
+            4                     2.73
+            5                     2.45
+            6                     2.14
+            7                     1.81
+            8                     1.69
+
+*macro.pnm (color), unde se aplica doar filtrul blur:            (IMAGINE MICA->MEDIE, UN SINGUR FILTRU)
+        nr procese:              timp:
+             1                    0.30
+             2                    0.30
+             3                    0.24
+             4                    0.26
+             5                    0.25
+             6                    0.28
+             7                    0.25
+             8                    0.24
+
+*darth-vader.pnm, unde se aplica doar filtrul mean:       (IMAGINE MICA, UN SINGUR FILTRU)
+        nr procese:              timp:
+             1                    0.21
+             2                    0.21
+             3                    0.16
+             4                    0.14
+             5                    0.16
+             6                    0.15
+             7                    0.14
+             8                    0.17
